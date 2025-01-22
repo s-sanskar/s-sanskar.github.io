@@ -14,10 +14,10 @@ date: 2025-01-23 21:00:00 -0400
 All challenges can be found here https://github.com/UofTCTF/uoftctf-2025-chals-public?tab=readme-ov-file
 
 ### Table Of Content
-- Prepared: Flag 1
 - 1337 v4ul7 (495)
 - CodeDB (388)
 - Scavenger Hunt (100)
+- Prepared: Flag 1
 
 > Not it any order
 
