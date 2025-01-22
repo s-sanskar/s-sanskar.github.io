@@ -379,33 +379,38 @@ Output:
 -----
 ### Scavenger Hunt - 100
 
-> 499 Solves
+> 499 Solves  
 
-http://34.150.251.3:3000/
+[http://34.150.251.3:3000/](http://34.150.251.3:3000/)
 
-The flag is divided into various parts and spread throughout the website:
+The flag is divided into several parts, which are spread throughout the website:
+
+---
 
 ```bash
 curl -s http://34.150.251.3:3000/ | grep uof
 ```
-> `-s` means silent (in our case it prevents output progress bar)
 
+> `-s` means silent; in this case, it prevents the progress bar from appearing.
 
-Response:
+**Response:**
+
 ```html
 <!-- part 1: uoftctf{ju57_k33p_ -->
 ```
 
-Flag 1/7: `uoftctf{ju57_k33p_`
+**Flag 1/7:** `uoftctf{ju57_k33p_`
 
 ---
 
 ```bash
 curl --head -s http://34.150.251.3:3000/
 ```
-> `--head` means only show the response header from the server
 
-Response:
+> `--head` means to show only the server's response header.
+
+**Response:**
+
 ```bash
 HTTP/1.1 200 OK
 X-Powered-By: Express
@@ -417,15 +422,16 @@ Connection: keep-alive
 Keep-Alive: timeout=5
 ```
 
-Flag 2/7: `c4lm_4nd_` (X-Flag-Part2 header)
+**Flag 2/7:** `c4lm_4nd_` (from the `X-Flag-Part2` header)
 
-----
+---
 
 ```bash
 curl -s http://34.150.251.3:3000/hidden_admin_panel --head
 ```
 
-Response:
+**Response:**
+
 ```
 HTTP/1.1 403 Forbidden
 X-Powered-By: Express
@@ -438,74 +444,80 @@ Connection: keep-alive
 Keep-Alive: timeout=5
 ```
 
-Flag 3/7: `1n5p3c7_` (2nd Set-Cookie header)
+**Flag 3/7:** `1n5p3c7_` (from the second `Set-Cookie` header)
 
-----
+---
 
 ```bash
 curl -s http://34.150.251.3:3000/robots.txt
 ```
-> `robots.txt` is a common text file in website. Read more here: https://developers.google.com/search/docs/crawling-indexing/robots/intro
 
+> `robots.txt` is a common text file used by websites to provide crawling instructions.  
+> Learn more: [https://developers.google.com/search/docs/crawling-indexing/robots/intro](https://developers.google.com/search/docs/crawling-indexing/robots/intro)
 
-Response:
+**Response:**
+
 ```
 User-agent: *
 Disallow: /hidden_admin_panel
 # part4=411_7h3_
 ```
 
-Flag 4 / 7 = `411_7h3_`
+**Flag 4/7:** `411_7h3_`
 
+---
 
-----
-
-```
+```bash
 curl -s http://34.150.251.3:3000/styles.css
 ```
 
-Response:
+**Response:**
+
 ```css
 /* p_a_r_t_f_i_v_e=4pp5_*/
 ```
 
-Flag 5 / 7 = `"4pp5_"`
+**Flag 5/7:** `4pp5_`
 
-----
+---
 
 ```bash
 curl -s http://34.150.251.3:3000/hidden_admin_panel -H "Cookie: user=admin" | grep flag
 ```
-> `-H` flag is used to set custom header using curl.
 
-Remember the `Set-Cookie: user=guest; Path=/; HttpOnly` and the hidden path from robots.txt `Disallow: /hidden_admin_panel` ? we combined information from those two to get this part of the flag.
+> `-H` sets a custom header in `curl`.  
+> Here, we combined the hints from `Set-Cookie: user=guest; Path=/; HttpOnly` and the hidden path from `robots.txt` (`Disallow: /hidden_admin_panel`) to find this part of the flag.
 
-Response:
+**Response:**
+
 ```html
 <strong>Part 6:</strong> <span class="flag">50urc3_</span>
 ```
 
-Flag 6 / 7 = `50urc3_`
+**Flag 6/7:** `50urc3_`
 
-----
+---
 
 ```bash
 curl -w "\n" -s http://34.150.251.3:3000/app.min.js.map
 ```
-> `-w` just adds a new line (`\n`) after the response, so it is easier to read for me.
 
-I know about this path because of `//# sourceMappingURL=app.min.js.map` in the `app.min.js`. And I know about `app.min.js` because `<script src="/app.min.js"></script>` in the main (`/`) site.
+> `-w "\n"` adds a newline after the response to make it easier to read.
 
-Response:
+We discovered this path from the comment `//# sourceMappingURL=app.min.js.map` in `app.min.js`. We found `app.min.js` referenced by the `<script src="/app.min.js"></script>` line in the main page.
+
+**Response:**
+
 ```
 "part7":"c0d3!!}"
 ```
 
+**Flag 7/7:** `c0d3!!}`
 
-Flag 7 / 7 = `c0d3!!}`
+---
 
+**Final Flag**
 
-Flag:
 ```
 uoftctf{ju57_k33p_c4lm_4nd_1n5p3c7_411_7h3_4pp5_50urc3_c0d3!!}
 ```
